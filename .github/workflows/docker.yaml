@@ -18,7 +18,8 @@ jobs:
     name: Pull
     runs-on: ubuntu-latest
     steps:
-    - name: Before freeing up disk space
+    ◦ name: Before freeing up disk space
+
       run: |
         echo "Before freeing up disk space"
         echo "=============================================================================="
@@ -26,9 +27,11 @@ jobs:
         echo "=============================================================================="
 
     # 增加可用磁盘空间
-    - name: Maximize build space
+    ◦ name: Maximize build space
+
       uses: easimon/maximize-build-space@master
       with:
+
         root-reserve-mb: 2048
         swap-size-mb: 128
         remove-dotnet: 'true'
@@ -38,23 +41,28 @@ jobs:
         # remove-codeql: 'true'
         build-mount-path: '/var/lib/docker/'
 
-    - name: Restart docker
+    ◦ name: Restart docker
+
       run: sudo service docker restart
 
-    - name: Free up disk space complete
+    ◦ name: Free up disk space complete
+
       run: |
         echo "Free up disk space complete"
         echo "=============================================================================="
         df -hT
         echo "=============================================================================="
 
-    - name: Checkout Code
+    ◦ name: Checkout Code
+
       uses: actions/checkout@v4
 
-    - name: Docker Setup Buildx
+    ◦ name: Docker Setup Buildx
+
       uses: docker/setup-buildx-action@v3
 
-    - name: Build and push image Aliyun
+    ◦ name: Build and push image Aliyun
+
       run: |
         docker login -u $ALIYUN_REGISTRY_USER -p $ALIYUN_REGISTRY_PASSWORD $ALIYUN_REGISTRY
         # 数据预处理,判断镜像是否重名
@@ -137,13 +145,6 @@ jobs:
             
             # 将@sha256:等字符删除
             image_name_tag="${image_name_tag%%@*}"
-            
-            # 规范化所有名称组件为小写
-            ALIYUN_REGISTRY=$(echo "$ALIYUN_REGISTRY" | tr '[:upper:]' '[:lower:]')
-            ALIYUN_NAME_SPACE=$(echo "$ALIYUN_NAME_SPACE" | tr '[:upper:]' '[:lower:]')
-            name_space_prefix=$(echo "$name_space_prefix" | tr '[:upper:]' '[:lower:]')
-            platform_prefix=$(echo "$platform_prefix" | tr '[:upper:]' '[:lower:]')
-            
             new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/$platform_prefix$name_space_prefix$image_name_tag"
             echo "docker tag $image $new_image"
             docker tag $image $new_image
@@ -161,3 +162,8 @@ jobs:
             echo "=============================================================================="     
             
         done < images.txt
+
+以上actionflow执行报错，用中文回到问题：
+docker tag nginx */*/nginx
+Error parsing reference: "*/*/nginx" is not a valid repository/tag: invalid reference format: repository name (***/nginx) must be lowercase
+Error: Process completed with exit code 1.
