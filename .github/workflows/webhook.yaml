@@ -1,220 +1,219 @@
-	name: Docker Pull and Push (Webhook Trigger)
+name: Docker Pull and Push (Webhook Trigger)
 
-	on:
-	  workflow_dispatch:
-		inputs:
-		  images:
-			description: 'Comma-separated list of Docker images (e.g., "nginx:latest,redis:alpine")'
-			required: true
-			type: string
-		  task_id:
-			description: 'Task ID from Flask application'
-			required: true
-			type: string
-		  execution_id:
-			description: 'Execution ID for tracking'
-			required: true
-			type: string
+on:
+  workflow_dispatch:
+    inputs:
+      images:
+        description: 'Comma-separated list of Docker images (e.g., "nginx:latest,redis:alpine")'
+        required: true
+        type: string
+      task_id:
+        description: 'Task ID from Flask application'
+        required: true
+        type: string
+      execution_id:
+        description: 'Execution ID for tracking'
+        required: true
+        type: string
 
-	env:
-	  ALIYUN_REGISTRY: "${{ secrets.ALIYUN_REGISTRY }}"
-	  ALIYUN_NAME_SPACE: "${{ secrets.ALIYUN_NAME_SPACE }}"
-	  ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"
-	  ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
-	  FLASK_WEBHOOK_URL: "${{ secrets.FLASK_WEBHOOK_URL }}"
-	  TASK_ID: "${{ github.event.inputs.task_id }}"
-	  EXECUTION_ID: "${{ github.event.inputs.execution_id }}"
+env:
+  ALIYUN_REGISTRY: "${{ secrets.ALIYUN_REGISTRY }}"
+  ALIYUN_NAME_SPACE: "${{ secrets.ALIYUN_NAME_SPACE }}"
+  ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"
+  ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
+  FLASK_WEBHOOK_URL: "${{ secrets.FLASK_WEBHOOK_URL }}"
+  TASK_ID: "${{ github.event.inputs.task_id }}"
+  EXECUTION_ID: "${{ github.event.inputs.execution_id }}"
 
-	jobs:
-	  build:
-		name: Pull and Push Images
-		runs-on: ubuntu-latest
-		steps:
-		  # 1. 磁盘空间检查
-		  - name: Check disk space before cleanup
-			run: |
-			  echo "Before freeing up disk space"
-			  echo "=============================================================================="
-			  df -hT
-			  echo "=============================================================================="
+jobs:
+  build:
+    name: Pull and Push Images
+    runs-on: ubuntu-latest
+    steps:
+      # 1. 磁盘空间检查
+      - name: Check disk space before cleanup
+        run: |
+          echo "Before freeing up disk space"
+          echo "=============================================================================="
+          df -hT
+          echo "=============================================================================="
 
-		  # 2. 清理磁盘空间
-		  - name: Maximize build space
-			uses: easimon/maximize-build-space@master
-			with:
-			  root-reserve-mb: 2048
-			  swap-size-mb: 128
-			  remove-dotnet: 'true'
-			  remove-haskell: 'true'
-			  build-mount-path: '/var/lib/docker/'
+      # 2. 清理磁盘空间
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 2048
+          swap-size-mb: 128
+          remove-dotnet: 'true'
+          remove-haskell: 'true'
+          build-mount-path: '/var/lib/docker/'
 
-		  - name: Restart Docker
-			run: sudo service docker restart
+      - name: Restart Docker
+        run: sudo service docker restart
 
-		  - name: Check disk space after cleanup
-			run: |
-			  echo "Free up disk space complete"
-			  echo "=============================================================================="
-			  df -hT
-			  echo "=============================================================================="
+      - name: Check disk space after cleanup
+        run: |
+          echo "Free up disk space complete"
+          echo "=============================================================================="
+          df -hT
+          echo "=============================================================================="
 
-		  # 3. 检出代码
-		  - name: Checkout Code
-			uses: actions/checkout@v4
+      # 3. 检出代码
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-		  # 4. 处理传入的镜像列表
-		  - name: Process Images
-			run: |
-			  echo "Received images: ${{ github.event.inputs.images }}"
-			  echo "Task ID: ${{ github.event.inputs.task_id }}"
-			  echo "Execution ID: ${{ github.event.inputs.execution_id }}"
-			  # 将逗号分隔的镜像列表写入 images.txt
-			  echo "${{ github.event.inputs.images }}" | sed 's/,/\n/g' > images.txt
-			  echo "Images to process:"
-			  cat images.txt
+      # 4. 处理传入的镜像列表
+      - name: Process Images
+        run: |
+          echo "Received images: ${{ github.event.inputs.images }}"
+          echo "Task ID: ${{ github.event.inputs.task_id }}"
+          echo "Execution ID: ${{ github.event.inputs.execution_id }}"
+          # 将逗号分隔的镜像列表写入 images.txt
+          echo "${{ github.event.inputs.images }}" | sed 's/,/\n/g' > images.txt
+          echo "Images to process:"
+          cat images.txt
 
-		  # 5. 登录阿里云镜像仓库
-		  - name: Login to Aliyun
-			run: |
-			  docker login -u $ALIYUN_REGISTRY_USER -p $ALIYUN_REGISTRY_PASSWORD $ALIYUN_REGISTRY
+      # 5. 登录阿里云镜像仓库
+      - name: Login to Aliyun
+        run: |
+          docker login -u $ALIYUN_REGISTRY_USER -p $ALIYUN_REGISTRY_PASSWORD $ALIYUN_REGISTRY
 
-		  # 6. 拉取、重命名并推送镜像
-		  - name: Pull, Tag, and Push Images
-			run: |
-			  # 初始化用于检测重名的数组
-			  declare -A duplicate_images
-			  declare -A temp_map
+      # 6. 拉取、重命名并推送镜像
+      - name: Pull, Tag, and Push Images
+        run: |
+          # 初始化用于检测重名的数组
+          declare -A duplicate_images
+          declare -A temp_map
 
-			  # 第一遍扫描：检测重名镜像
-			  while IFS= read -r image || [ -n "$image" ]; do
-				# 忽略空行
-				[[ -z "$image" ]] && continue
+          # 第一遍扫描：检测重名镜像
+          while IFS= read -r image || [ -n "$image" ]; do
+            # 忽略空行
+            [[ -z "$image" ]] && continue
 
-				echo "Analyzing image: $image"
-				
-				# 处理镜像名称（移除平台参数）
-				clean_image=$(echo "$image" | sed 's/^--platform=[^ ]* //')
-				clean_image="${clean_image%%@*}"  # 移除@sha256等部分
-				image_name_tag=$(echo "$clean_image" | awk -F'/' '{print $NF}')
-				name_space=$(echo "$clean_image" | awk -F'/' '{if (NF==3) print $2; else if (NF==2) print $1; else print ""}')
-				name_space="${name_space}_"  # 确保非空
-				image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
+            echo "Analyzing image: $image"
+            
+            # 处理镜像名称（移除平台参数）
+            clean_image=$(echo "$image" | sed 's/^--platform=[^ ]* //')
+            clean_image="${clean_image%%@*}"  # 移除@sha256等部分
+            image_name_tag=$(echo "$clean_image" | awk -F'/' '{print $NF}')
+            name_space=$(echo "$clean_image" | awk -F'/' '{if (NF==3) print $2; else if (NF==2) print $1; else print ""}')
+            name_space="${name_space}_"  # 确保非空
+            image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
 
-				# 检测重名
-				if [[ -n "${temp_map[$image_name]}" ]]; then
-				  if [[ "${temp_map[$image_name]}" != $name_space ]]; then
-					echo "Duplicate image name detected: $image_name"
-					duplicate_images[$image_name]="true"
-				  fi
-				else
-				  temp_map[$image_name]=$name_space
-				fi
-			  done < images.txt
+            # 检测重名
+            if [[ -n "${temp_map[$image_name]}" ]]; then
+              if [[ "${temp_map[$image_name]}" != $name_space ]]; then
+                echo "Duplicate image name detected: $image_name"
+                duplicate_images[$image_name]="true"
+              fi
+            else
+              temp_map[$image_name]=$name_space
+            fi
+          done < images.txt
 
-			  # 第二遍扫描：处理镜像
-			  while IFS= read -r image || [ -n "$image" ]; do
-				# 忽略空行
-				[[ -z "$image" ]] && continue
+          # 第二遍扫描：处理镜像
+          while IFS= read -r image || [ -n "$image" ]; do
+            # 忽略空行
+            [[ -z "$image" ]] && continue
 
-				echo "Processing image: $image"
-				
-				# 发送开始处理消息
-				if [ -n "$FLASK_WEBHOOK_URL" ]; then
-				  curl -X POST \
-					-H "Content-Type: application/json" \
-					-d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "running", "message": "开始处理镜像"}' \
-					$FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (start processing)"
-				fi
-				
-				# 提取平台参数（如果有）
-				platform=""
-				if [[ "$image" =~ ^--platform= ]]; then
-				  platform=$(echo "$image" | awk '{print $1}' | sed 's/--platform=//')
-				  image=$(echo "$image" | sed 's/^--platform=[^ ]* //')
-				fi
+            echo "Processing image: $image"
+            
+            # 发送开始处理消息
+            if [ -n "$FLASK_WEBHOOK_URL" ]; then
+              curl -X POST \
+                -H "Content-Type: application/json" \
+                -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "running", "message": "开始处理镜像"}' \
+                $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (start processing)"
+            fi
+            
+            # 提取平台参数（如果有）
+            platform=""
+            if [[ "$image" =~ ^--platform= ]]; then
+              platform=$(echo "$image" | awk '{print $1}' | sed 's/--platform=//')
+              image=$(echo "$image" | sed 's/^--platform=[^ ]* //')
+            fi
 
-				# 拉取镜像
-				pull_command="docker pull"
-				if [ -n "$platform" ]; then
-				  pull_command="$pull_command --platform $platform"
-				fi
-				pull_command="$pull_command $image"
+            # 拉取镜像
+            pull_command="docker pull"
+            if [ -n "$platform" ]; then
+              pull_command="$pull_command --platform $platform"
+            fi
+            pull_command="$pull_command $image"
 
-				if ! $pull_command; then
-				  if [ -n "$FLASK_WEBHOOK_URL" ]; then
-					curl -X POST \
-					  -H "Content-Type: application/json" \
-					  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "拉取镜像失败"}' \
-					  $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (pull failed)"
-				  fi
-				  continue
-				fi
+            if ! $pull_command; then
+              if [ -n "$FLASK_WEBHOOK_URL" ]; then
+                curl -X POST \
+                  -H "Content-Type: application/json" \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "拉取镜像失败"}' \
+                  $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (pull failed)"
+              fi
+              continue
+            fi
 
-				# 获取镜像尺寸
-				size=$(docker inspect $image --format='{{.Size}}')
-				human_size=$(numfmt --to=si --format="%.2f" $size)
+            # 处理镜像名称
+            clean_image="${image%%@*}"  # 移除@sha256等部分
+            image_name_tag=$(echo "$clean_image" | awk -F'/' '{print $NF}')
+            name_space=$(echo "$clean_image" | awk -F'/' '{if (NF==3) print $2; else if (NF==2) print $1; else print ""}')
+            image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
 
-				# 处理镜像名称
-				clean_image="${image%%@*}"  # 移除@sha256等部分
-				image_name_tag=$(echo "$clean_image" | awk -F'/' '{print $NF}')
-				name_space=$(echo "$clean_image" | awk -F'/' '{if (NF==3) print $2; else if (NF==2) print $1; else print ""}')
-				image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
+            # 处理平台信息（如果有）
+            platform_prefix=""
+            if [ -n "$platform" ]; then
+              platform_prefix="${platform//\//_}_"
+            fi
 
-				# 处理平台信息（如果有）
-				platform_prefix=""
-				if [ -n "$platform" ]; then
-				  platform_prefix="${platform//\//_}_"
-				fi
+            # 处理命名空间前缀（如果有重名）
+            name_space_prefix=""
+            if [[ -n "${duplicate_images[$image_name]}" && -n "$name_space" ]]; then
+              name_space_prefix="${name_space}_"
+            fi
 
-				# 处理命名空间前缀（如果有重名）
-				name_space_prefix=""
-				if [[ -n "${duplicate_images[$image_name]}" && -n "$name_space" ]]; then
-				  name_space_prefix="${name_space}_"
-				fi
+            # 构建新的镜像名称
+            new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/$platform_prefix$name_space_prefix$image_name_tag"
+            
+            # 重命名镜像
+            if ! docker tag "$clean_image" "$new_image"; then
+              if [ -n "$FLASK_WEBHOOK_URL" ]; then
+                curl -X POST \
+                  -H "Content-Type: application/json" \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "重命名镜像失败"}' \
+                  $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (tag failed)"
+              fi
+              continue
+            fi
+            
+            # 推送镜像
+            if docker push "$new_image"; then
+              # 获取镜像大小
+              image_size=$(docker inspect --format='{{.Size}}' $new_image | numfmt --to=si)
+              
+              if [ -n "$FLASK_WEBHOOK_URL" ]; then
+                curl -X POST \
+                  -H "Content-Type: application/json" \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "success", "message": "镜像同步成功", "size": "'"$image_size"'", "platform": "'"$platform"'"}' \
+                  $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (push success)"
+              fi
+            else
+              if [ -n "$FLASK_WEBHOOK_URL" ]; then
+                curl -X POST \
+                  -H "Content-Type: application/json" \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "推送镜像失败"}' \
+                  $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (push failed)"
+              fi
+            fi
+            
+            # 清理本地镜像
+            echo "Cleaning up disk space..."
+            df -hT
+            docker rmi "$clean_image" "$new_image" || true
+            echo "Cleanup completed:"
+            df -hT
+          done < images.txt
 
-				# 构建新的镜像名称
-				new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/$platform_prefix$name_space_prefix$image_name_tag"
-				
-				# 重命名镜像
-				if ! docker tag "$clean_image" "$new_image"; then
-				  if [ -n "$FLASK_WEBHOOK_URL" ]; then
-					curl -X POST \
-					  -H "Content-Type: application/json" \
-					  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "重命名镜像失败"}' \
-					  $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (tag failed)"
-				  fi
-				  continue
-				fi
-				
-				# 推送镜像
-				if docker push "$new_image"; then
-				  if [ -n "$FLASK_WEBHOOK_URL" ]; then
-				  	curl -X POST \
-				  	  -H "Content-Type: application/json" \
-				  	  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "success", "message": "镜像同步成功", "size": "'"$(docker inspect --format='{{.Size}}' $new_image | numfmt --to=si)"'", "platform": "'"$platform"'"}' \
-				  	  $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (push success)"
-				  fi
-				else
-				  if [ -n "$FLASK_WEBHOOK_URL" ]; then
-					curl -X POST \
-					  -H "Content-Type: application/json" \
-					  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "推送镜像失败"}' \
-					  $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (push failed)"
-				  fi
-				fi
-				
-				# 清理本地镜像
-				echo "Cleaning up disk space..."
-				df -hT
-				docker rmi "$clean_image" "$new_image" || true
-				echo "Cleanup completed:"
-				df -hT
-			  done < images.txt
-
-			  # 发送任务完成通知
-			  if [ -n "$FLASK_WEBHOOK_URL" ]; then
-				curl -X POST \
-				  -H "Content-Type: application/json" \
-				  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "status": "completed", "message": "所有镜像处理完成"}' \
-				  $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (task completed)"
-			  fi
+          # 发送任务完成通知
+          if [ -n "$FLASK_WEBHOOK_URL" ]; then
+            curl -X POST \
+              -H "Content-Type: application/json" \
+              -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "status": "completed", "message": "所有镜像处理完成"}' \
+              $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (task completed)"
+          fi
