@@ -7,6 +7,10 @@ on:
         description: 'Comma-separated list of Docker images (e.g., "nginx:latest,redis:alpine")'
         required: true
         type: string
+      task_id:
+        description: 'Task ID from Flask application'
+        required: true
+        type: string
 
 env:
   ALIYUN_REGISTRY: "${{ secrets.ALIYUN_REGISTRY }}"
@@ -57,6 +61,7 @@ jobs:
       - name: Process Images
         run: |
           echo "Received images: ${{ github.event.inputs.images }}"
+          echo "Task ID: ${{ github.event.inputs.task_id }}"
           # 将逗号分隔的镜像列表写入 images.txt
           echo "${{ github.event.inputs.images }}" | sed 's/,/\n/g' > images.txt
           echo "Images to process:"
@@ -67,7 +72,7 @@ jobs:
         run: |
           docker login -u $ALIYUN_REGISTRY_USER -p $ALIYUN_REGISTRY_PASSWORD $ALIYUN_REGISTRY
 
-      # 6. 拉取、重命名并推送镜像（改进后的命名逻辑）
+      # 6. 拉取、重命名并推送镜像
       - name: Pull, Tag, and Push Images
         run: |
           # 初始化用于检测重名的数组
@@ -106,11 +111,11 @@ jobs:
 
             echo "Processing image: $image"
             
-            # 如果设置了FLASK_WEBHOOK_URL，则发送开始处理消息
+            # 发送开始处理消息
             if [ -n "$FLASK_WEBHOOK_URL" ]; then
               curl -X POST \
                 -H "Content-Type: application/json" \
-                -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "processing", "message": "开始处理镜像"}' \
+                -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "running", "message": "开始处理镜像"}' \
                 $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (start processing)"
             fi
             
@@ -183,3 +188,11 @@ jobs:
             echo "Cleanup completed:"
             df -hT
           done < images.txt
+
+          # 发送任务完成通知
+          if [ -n "$FLASK_WEBHOOK_URL" ]; then
+            curl -X POST \
+              -H "Content-Type: application/json" \
+              -d '{"task_id": "'"$TASK_ID"'", "status": "completed", "message": "所有镜像处理完成"}' \
+              $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (task completed)"
+          fi
