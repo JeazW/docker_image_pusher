@@ -140,15 +140,21 @@ jobs:
             fi
             pull_command="$pull_command $image"
 
-            if ! $pull_command; then
+            # 创建临时文件存储错误日志
+            error_log_file=$(mktemp)
+
+            if ! $pull_command 2> "$error_log_file"; then
+              error_message=$(cat "$error_log_file" | tr -d '\n' | sed 's/"/\\"/g')
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
                 curl -X POST \
                   -H "Content-Type: application/json" \
-                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "拉取镜像失败"}' \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "拉取镜像失败", "errorlog": "'"$error_message"'"}' \
                   $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (pull failed)"
               fi
+              rm -f "$error_log_file"
               continue
             fi
+            rm -f "$error_log_file"
 
             # 处理镜像名称
             clean_image="${image%%@*}"  # 移除@sha256等部分
@@ -183,7 +189,8 @@ jobs:
             fi
             
             # 推送镜像
-            if docker push "$new_image"; then
+            push_error_log=$(mktemp)
+            if docker push "$new_image" 2> "$push_error_log"; then
               # 获取镜像大小
               image_size=$(docker inspect --format='{{.Size}}' $new_image | numfmt --to=si)
               
@@ -194,13 +201,15 @@ jobs:
                   $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (push success)"
               fi
             else
+              error_message=$(cat "$push_error_log" | tr -d '\n' | sed 's/"/\\"/g')
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
                 curl -X POST \
                   -H "Content-Type: application/json" \
-                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "推送镜像失败"}' \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "推送镜像失败", "errorlog": "'"$error_message"'"}' \
                   $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (push failed)"
               fi
             fi
+            rm -f "$push_error_log"
             
             # 清理本地镜像
             echo "Cleaning up disk space..."
