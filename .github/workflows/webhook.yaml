@@ -63,7 +63,7 @@ jobs:
           echo "Received images: ${{ github.event.inputs.images }}"
           echo "Task ID: ${{ github.event.inputs.task_id }}"
           # 将逗号分隔的镜像列表写入 images.txt
-          echo "${{ github.event.inputs.images }}" | sed 's/,/\n/g' > images.txt
+          echo "${{ github.event.inputs.images }}" | tr ',' '\n' > images.txt
           echo "Images to process:"
           cat images.txt
 
