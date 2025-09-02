@@ -106,18 +106,22 @@ jobs:
 
             echo "Processing image: $image"
             
-            # 发送开始处理消息
-            curl -X POST \
-              -H "Content-Type: application/json" \
-              -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "processing", "message": "开始处理镜像"}' \
-              $FLASK_WEBHOOK_URL
+            # 如果设置了FLASK_WEBHOOK_URL，则发送开始处理消息
+            if [ -n "$FLASK_WEBHOOK_URL" ]; then
+              curl -X POST \
+                -H "Content-Type: application/json" \
+                -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "processing", "message": "开始处理镜像"}' \
+                $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (start processing)"
+            fi
             
             # 拉取镜像
             if ! docker pull "$image"; then
-              curl -X POST \
-                -H "Content-Type: application/json" \
-                -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "拉取镜像失败"}' \
-                $FLASK_WEBHOOK_URL
+              if [ -n "$FLASK_WEBHOOK_URL" ]; then
+                curl -X POST \
+                  -H "Content-Type: application/json" \
+                  -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "拉取镜像失败"}' \
+                  $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (pull failed)"
+              fi
               continue
             fi
 
@@ -146,24 +150,30 @@ jobs:
             
             # 重命名镜像
             if ! docker tag "$clean_image" "$new_image"; then
-              curl -X POST \
-                -H "Content-Type: application/json" \
-                -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "重命名镜像失败"}' \
-                $FLASK_WEBHOOK_URL
+              if [ -n "$FLASK_WEBHOOK_URL" ]; then
+                curl -X POST \
+                  -H "Content-Type: application/json" \
+                  -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "重命名镜像失败"}' \
+                  $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (tag failed)"
+              fi
               continue
             fi
             
             # 推送镜像
             if docker push "$new_image"; then
-              curl -X POST \
-                -H "Content-Type: application/json" \
-                -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "success", "message": "镜像同步成功"}' \
-                $FLASK_WEBHOOK_URL
+              if [ -n "$FLASK_WEBHOOK_URL" ]; then
+                curl -X POST \
+                  -H "Content-Type: application/json" \
+                  -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "success", "message": "镜像同步成功"}' \
+                  $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (push success)"
+              fi
             else
-              curl -X POST \
-                -H "Content-Type: application/json" \
-                -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "推送镜像失败"}' \
-                $FLASK_WEBHOOK_URL
+              if [ -n "$FLASK_WEBHOOK_URL" ]; then
+                curl -X POST \
+                  -H "Content-Type: application/json" \
+                  -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "推送镜像失败"}' \
+                  $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (push failed)"
+              fi
             fi
             
             # 清理本地镜像
