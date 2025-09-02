@@ -144,13 +144,11 @@ jobs:
               continue
             fi
 
-            # 获取镜像尺寸
-            image_size=$(docker inspect $image --format='{{.Size}}' | numfmt --to=si)
-            
             # 处理镜像名称
             clean_image="${image%%@*}"  # 移除@sha256等部分
             image_name_tag=$(echo "$clean_image" | awk -F'/' '{print $NF}')
             name_space=$(echo "$clean_image" | awk -F'/' '{if (NF==3) print $2; else if (NF==2) print $1; else print ""}')
+            image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
 
             # 处理平台信息（如果有）
             platform_prefix=""
@@ -183,7 +181,7 @@ jobs:
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
                 curl -X POST \
                   -H "Content-Type: application/json" \
-                  -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "success", "message": "镜像同步成功", "image_size": "'"$image_size"'"}' \
+                  -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "success", "message": "镜像同步成功"}' \
                   $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (push success)"
               fi
             else
