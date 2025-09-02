@@ -11,6 +11,10 @@ on:
         description: 'Task ID from Flask application'
         required: true
         type: string
+      execution_id:
+        description: 'Execution ID for tracking'
+        required: true
+        type: string
 
 env:
   ALIYUN_REGISTRY: "${{ secrets.ALIYUN_REGISTRY }}"
@@ -19,6 +23,7 @@ env:
   ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
   FLASK_WEBHOOK_URL: "${{ secrets.FLASK_WEBHOOK_URL }}"
   TASK_ID: "${{ github.event.inputs.task_id }}"
+  EXECUTION_ID: "${{ github.event.inputs.execution_id }}"
 
 jobs:
   build:
@@ -62,6 +67,7 @@ jobs:
         run: |
           echo "Received images: ${{ github.event.inputs.images }}"
           echo "Task ID: ${{ github.event.inputs.task_id }}"
+          echo "Execution ID: ${{ github.event.inputs.execution_id }}"
           # 将逗号分隔的镜像列表写入 images.txt
           echo "${{ github.event.inputs.images }}" | sed 's/,/\n/g' > images.txt
           echo "Images to process:"
@@ -116,7 +122,7 @@ jobs:
             if [ -n "$FLASK_WEBHOOK_URL" ]; then
               curl -X POST \
                 -H "Content-Type: application/json" \
-                -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "running", "message": "开始处理镜像"}' \
+                -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "running", "message": "开始处理镜像"}' \
                 $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (start processing)"
             fi
             
@@ -138,11 +144,15 @@ jobs:
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
                 curl -X POST \
                   -H "Content-Type: application/json" \
-                  -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "拉取镜像失败"}' \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "拉取镜像失败"}' \
                   $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (pull failed)"
               fi
               continue
             fi
+
+            # 获取镜像尺寸
+            size=$(docker inspect $image --format='{{.Size}}')
+            human_size=$(numfmt --to=si --format="%.2f" $size)
 
             # 处理镜像名称
             clean_image="${image%%@*}"  # 移除@sha256等部分
@@ -170,7 +180,7 @@ jobs:
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
                 curl -X POST \
                   -H "Content-Type: application/json" \
-                  -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "重命名镜像失败"}' \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "重命名镜像失败"}' \
                   $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (tag failed)"
               fi
               continue
@@ -181,14 +191,14 @@ jobs:
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
                 curl -X POST \
                   -H "Content-Type: application/json" \
-                  -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "success", "message": "镜像同步成功"}' \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "success", "message": "镜像同步成功", "size": "'"$human_size"'"}' \
                   $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (push success)"
               fi
             else
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
                 curl -X POST \
                   -H "Content-Type: application/json" \
-                  -d '{"task_id": "'"$TASK_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "推送镜像失败"}' \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "推送镜像失败"}' \
                   $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (push failed)"
               fi
             fi
@@ -205,6 +215,6 @@ jobs:
           if [ -n "$FLASK_WEBHOOK_URL" ]; then
             curl -X POST \
               -H "Content-Type: application/json" \
-              -d '{"task_id": "'"$TASK_ID"'", "status": "completed", "message": "所有镜像处理完成"}' \
+              -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "status": "completed", "message": "所有镜像处理完成"}' \
               $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (task completed)"
           fi
