@@ -150,7 +150,13 @@ jobs:
 
             if ! $pull_command 2> "$error_log_file"; then
               error_message=$(cat "$error_log_file" | tr -d '\n' | sed 's/"/\\"/g')
-              pull_results["$image"]="{\"status\":\"failed\", \"error\":\"$error_message\"}"
+              clean_image="${image%%@*}"
+              image_name_tag=$(echo "$clean_image" | awk -F'/' '{print $NF}')
+              image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
+              image_tag=$(echo "$image_name_tag" | awk -F':' '{print $2}')
+              
+              pull_results["$image"]="{\"status\":\"failed\", \"image_name\":\"$image_name\", \"tag\":\"$image_tag\", \"error\":\"$error_message\"}"
+              
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
                 curl -X POST \
                   -H "Content-Type: application/json" \
@@ -168,7 +174,7 @@ jobs:
               image_tag=$(echo "$image_name_tag" | awk -F':' '{print $2}')
               image_size=$(docker inspect --format='{{.Size}}' $clean_image | numfmt --to=si)
               
-              pull_results["$image"]="{\"status\":\"success\", \"image_name\":\"$image_name\", \"tag\":\"$image_tag\", \"size\":\"$image_size\"}"
+              pull_results["$image"]="{\"status\":\"success\", \"image_name\":\"$image_name\", \"tag\":\"$image_tag\", \"size\":\"$image_size\", \"platform\":\"$platform\"}"
             fi
             rm -f "$error_log_file"
 
@@ -242,25 +248,23 @@ jobs:
           echo "=============================================="
           echo "pull-results-summary:"
           echo "=============================================="
+          # 构建完整的pull_summary JSON
+          pull_summary_json="{"
+          first=true
           for image in "${!pull_results[@]}"; do
-            echo "$image ${pull_results[$image]}"
+            if [ "$first" = false ]; then
+              pull_summary_json+=","
+            fi
+            pull_summary_json+="\"$image\":${pull_results[$image]}"
+            first=false
           done
+          pull_summary_json+="}"
+          
+          echo "$pull_summary_json"
           echo "=============================================="
 
           # 发送任务完成通知（添加token头）
           if [ -n "$FLASK_WEBHOOK_URL" ]; then
-            # 构建完整的pull_summary JSON
-            pull_summary_json="{"
-            first=true
-            for image in "${!pull_results[@]}"; do
-              if [ "$first" = false ]; then
-                pull_summary_json+=","
-              fi
-              pull_summary_json+="\"$image\":${pull_results[$image]}"
-              first=false
-            done
-            pull_summary_json+="}"
-
             curl -X POST \
               -H "Content-Type: application/json" \
               -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
