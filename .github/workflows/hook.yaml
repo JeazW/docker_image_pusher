@@ -201,7 +201,20 @@ jobs:
 
           # 将结果写入文件以便后续步骤使用
           echo "$pull_summary_json" > pull_results.json
-          echo "pull_summary_json=$pull_summary_json" >> $GITHUB_OUTPUT
+          
+          # 修复输出格式，确保 JSON 是有效的
+          # 使用 jq 工具格式化 JSON，并确保输出符合 GitHub Actions 的要求
+          if ! command -v jq &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y jq
+          fi
+          
+          # 使用 jq 格式化 JSON，并确保输出是单行的
+          formatted_json=$(echo "$pull_summary_json" | jq -c .)
+          
+          # 输出到 GITHUB_OUTPUT，确保格式正确
+          echo "pull_summary_json<<EOF" >> $GITHUB_OUTPUT
+          echo "$formatted_json" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       # 7. 上传pull结果
       - name: Upload-Pull-Results
