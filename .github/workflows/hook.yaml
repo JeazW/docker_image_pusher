@@ -147,7 +147,14 @@ jobs:
             image_size=$(docker inspect --format='{{.Size}}' "$clean_image" | numfmt --to=si)
             
             # 构建新的镜像名称
-            new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/$image_name_tag"
+            if [ -n "$platform" ]; then
+              # 对于指定了平台的镜像，使用平台信息作为前缀
+              platform_prefix=$(echo "$platform" | sed 's/\//_/g')  # 将linux/arm64转换为linux_arm64
+              new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/${platform_prefix}_${image_name_tag}"
+            else
+              # 普通镜像保持原样
+              new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/$image_name_tag"
+            fi
             
             # 重命名镜像
             if ! docker tag "$clean_image" "$new_image"; then
