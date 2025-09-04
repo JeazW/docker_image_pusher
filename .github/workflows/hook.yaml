@@ -110,17 +110,18 @@ jobs:
             image_tag=$(echo "$image_name_tag" | awk -F':' '{print $2}')
             image_tag=${image_tag:-'latest'}  # 如果没有标签，默认为latest
       
-            # 构建显示用的镜像名称
+            # 构建显示用的镜像名称（将平台中的/替换为_）
             display_image_name="$image_name"
             if [ -n "$platform" ]; then
-              display_image_name="${platform}_${image_name}"  # 添加平台前缀
+              platform_display=$(echo "$platform" | sed 's/\//_/g')
+              display_image_name="${platform_display}_${image_name}"
             fi
       
             # 初始化结果对象
             result="{
               \"image\": \"$original_image\",
               \"status\": \"unknown\",
-              \"image_name\": \"$display_image_name\",  # 使用带平台前缀的名称
+              \"image_name\": \"$display_image_name\",
               \"tag\": \"$image_tag\",
               \"platform\": \"$platform\"
             }"
@@ -153,14 +154,14 @@ jobs:
             # 获取镜像大小
             image_size=$(docker inspect --format='{{.Size}}' "$clean_image" | numfmt --to=si)
             
-            # 构建新的镜像名称
+            # 构建新的镜像名称（推送用的名称）
             if [ -n "$platform" ]; then
               # 对于指定了平台的镜像，使用平台信息作为前缀
               platform_prefix=$(echo "$platform" | sed 's/\//_/g')  # 将linux/arm64转换为linux_arm64
-              new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/${platform_prefix}_${image_name_tag}"
+              new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/${platform_prefix}_${image_name}:${image_tag}"
             else
               # 普通镜像保持原样
-              new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/$image_name_tag"
+              new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/${image_name}:${image_tag}"
             fi
             
             # 重命名镜像
@@ -187,7 +188,7 @@ jobs:
                 \"tag\": \"$image_tag\",
                 \"size\": \"$image_size\",
                 \"platform\": \"$platform\",
-                \"new_image_name\": \"$new_image\"  # 添加新镜像名称
+                \"new_image\": \"$new_image\"
               }"
             else
               error_message=$(cat "$push_error_log" | tr -d '\n' | sed 's/"/\\"/g')
@@ -214,8 +215,12 @@ jobs:
             if [ "$first" = false ]; then
               pull_summary_json+=","
             fi
-            # 提取镜像名称作为key
-            image_key=$(echo "$result" | jq -r '.image' | sed 's/[\/:]/_/g')
+            # 提取镜像名称作为key（使用原始镜像名称并替换特殊字符）
+            image_key=$(echo "$result" | jq -r '.image' | sed 's/[\/:]/_/g;s/^--platform=[^ ]* //')
+            # 确保key不为空
+            if [ -z "$image_key" ]; then
+              image_key="unnamed_$(date +%s%N)"
+            fi
             pull_summary_json+="\"$image_key\":$result"
             first=false
           done
@@ -225,7 +230,7 @@ jobs:
           echo "=============================================="
           echo "pull-results-summary:"
           echo "=============================================="
-          echo "$pull_summary_json"
+          echo "$pull_summary_json" | jq .
           echo "=============================================="
       
           # 将结果写入文件
