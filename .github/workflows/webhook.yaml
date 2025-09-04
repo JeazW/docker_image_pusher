@@ -240,7 +240,8 @@ jobs:
           echo "=============================================="
           echo "pull-results-summary (JSON format):"
           echo "=============================================="
-          echo "["
+          echo "{"
+          echo "  \"summary\": ["
           first=true
           for image in "${!pull_results[@]}"; do
             clean_image="${image%%@*}"  # 移除@sha256等部分
@@ -256,23 +257,51 @@ jobs:
               echo ","
             fi
             
-            echo -n '  {
-    "image": "'"$image_name"'",
-    "tag": "'"${image_tag:-latest}"'",
-    "size": "'"$size"'",
-    "status": "'"$status"'",
-    "full_name": "'"$image"'"
-  }'
+            echo -n '    {
+      "name": "'"$image_name"'",
+      "tag": "'"${image_tag:-latest}"'",
+      "size": "'"$size"'",
+      "status": "'"$status"'",
+      "full_name": "'"$image"'"
+    }'
           done
           echo ""
-          echo "]"
+          echo "  ]"
+          echo "}"
           echo "=============================================="
 
           # 发送任务完成通知（添加token头）
           if [ -n "$FLASK_WEBHOOK_URL" ]; then
+            # 准备JSON格式的汇总数据
+            summary_json="{\"summary\": ["
+            first=true
+            for image in "${!pull_results[@]}"; do
+              clean_image="${image%%@*}"
+              image_name_tag=$(echo "$clean_image" | awk -F'/' '{print $NF}')
+              image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
+              image_tag=$(echo "$image_name_tag" | awk -F':' '{print $2}')
+              size="${image_sizes[$image]:-"N/A"}"
+              status="${pull_results[$image]}"
+              
+              if [ "$first" = true ]; then
+                first=false
+              else
+                summary_json="$summary_json,"
+              fi
+              
+              summary_json="$summary_json {
+                \"name\": \"$image_name\",
+                \"tag\": \"${image_tag:-latest}\",
+                \"size\": \"$size\",
+                \"status\": \"$status\",
+                \"full_name\": \"$image\"
+              }"
+            done
+            summary_json="$summary_json ]}"
+            
             curl -X POST \
               -H "Content-Type: application/json" \
               -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
-              -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "status": "completed", "message": "所有镜像处理完成", "pull_summary": '"$(declare -p pull_results | sed -e 's/^declare -A pull_results=//')"'}' \
+              -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "status": "completed", "message": "所有镜像处理完成", "pull_summary": '"$summary_json"'}' \
               $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (task completed)"
           fi
