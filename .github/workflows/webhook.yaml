@@ -88,6 +88,7 @@ jobs:
           declare -A duplicate_images
           declare -A temp_map
           declare -A pull_results
+          declare -A image_sizes
 
           # 第一遍扫描：检测重名镜像
           while IFS= read -r image || [ -n "$image" ]; do
@@ -150,7 +151,7 @@ jobs:
 
             if ! $pull_command 2> "$error_log_file"; then
               error_message=$(cat "$error_log_file" | tr -d '\n' | sed 's/"/\\"/g')
-              pull_results["$image"]="{\"status\": \"failed\", \"reason\": \"$error_message\"}"
+              pull_results["$image"]="failed: $error_message"
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
                 curl -X POST \
                   -H "Content-Type: application/json" \
@@ -161,7 +162,11 @@ jobs:
               rm -f "$error_log_file"
               continue
             else
-              pull_results["$image"]="{\"status\": \"success\"}"
+              pull_results["$image"]="success"
+              # 获取镜像尺寸
+              clean_image="${image%%@*}"  # 移除@sha256等部分
+              image_size=$(docker inspect --format='{{.Size}}' $clean_image | numfmt --to=si)
+              image_sizes["$image"]="$image_size"
             fi
             rm -f "$error_log_file"
 
@@ -231,20 +236,22 @@ jobs:
             df -hT
           done < images.txt
 
-          # 打印拉取结果汇总（JSON格式）
+          # 打印拉取结果汇总
           echo "=============================================="
-          echo "Pull Results Summary (JSON):"
+          echo "pull-results-summary:"
           echo "=============================================="
-          echo "{"
-          first=true
           for image in "${!pull_results[@]}"; do
-            if [ "$first" = false ]; then
-              echo ","
-            fi
-            first=false
-            echo "  \"$image\": ${pull_results[$image]}"
+            clean_image="${image%%@*}"  # 移除@sha256等部分
+            image_name_tag=$(echo "$clean_image" | awk -F'/' '{print $NF}')
+            image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
+            image_tag=$(echo "$image_name_tag" | awk -F':' '{print $2}')
+            size="${image_sizes[$image]:-"N/A"}"
+            echo "Image: $image_name"
+            echo "Tag: ${image_tag:-latest}"
+            echo "Size: $size"
+            echo "Status: ${pull_results[$image]}"
+            echo "----------------------------------------------"
           done
-          echo "}"
           echo "=============================================="
 
           # 发送任务完成通知（添加token头）
@@ -252,6 +259,6 @@ jobs:
             curl -X POST \
               -H "Content-Type: application/json" \
               -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
-              -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "status": "completed", "message": "所有镜像处理完成", "pull_summary": {'"$(for image in "${!pull_results[@]}"; do echo "\"$image\": ${pull_results[$image]},"; done | sed '$ s/,$//')"'}}' \
+              -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "status": "completed", "message": "所有镜像处理完成", "pull_summary": '"$(declare -p pull_results | sed -e 's/^declare -A pull_results=//')"'}' \
               $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (task completed)"
           fi
