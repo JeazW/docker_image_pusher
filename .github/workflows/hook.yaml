@@ -61,7 +61,16 @@ jobs:
       - name: Checkout-Code
         uses: actions/checkout@v4
 
-      # 4. 处理传入的镜像列表
+      # 4. 登录阿里云Docker Registry
+      - name: Login-to-Aliyun-Registry
+        run: |
+          echo "$ALIYUN_REGISTRY_PASSWORD" | docker login $ALIYUN_REGISTRY -u $ALIYUN_REGISTRY_USER --password-stdin
+          if [ $? -ne 0 ]; then
+            echo "::error::Failed to login to Aliyun Docker Registry"
+            exit 1
+          fi
+
+      # 5. 处理传入的镜像列表
       - name: Process-Images
         run: |
           echo "Received images: ${{ github.event.inputs.images }}"
