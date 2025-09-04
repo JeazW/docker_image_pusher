@@ -92,7 +92,7 @@ jobs:
           while IFS= read -r image || [ -n "$image" ]; do
             # 忽略空行
             [[ -z "$image" ]] && continue
-
+      
             echo "Processing image: $image"
             
             # 提取平台参数（如果有）
@@ -101,39 +101,46 @@ jobs:
               platform=$(echo "$image" | awk '{print $1}' | sed 's/--platform=//')
               image=$(echo "$image" | sed 's/^--platform=[^ ]* //')
             fi
-
+      
             # 记录原始镜像名称
             original_image="$image"
             clean_image="${image%%@*}"  # 移除@sha256等部分
             image_name_tag=$(echo "$clean_image" | awk -F'/' '{print $NF}')
             image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
             image_tag=$(echo "$image_name_tag" | awk -F':' '{print $2}')
-
+            image_tag=${image_tag:-'latest'}  # 如果没有标签，默认为latest
+      
+            # 构建显示用的镜像名称
+            display_image_name="$image_name"
+            if [ -n "$platform" ]; then
+              display_image_name="${platform}_${image_name}"  # 添加平台前缀
+            fi
+      
             # 初始化结果对象
             result="{
               \"image\": \"$original_image\",
               \"status\": \"unknown\",
-              \"image_name\": \"$image_name\",
+              \"image_name\": \"$display_image_name\",  # 使用带平台前缀的名称
               \"tag\": \"$image_tag\",
               \"platform\": \"$platform\"
             }"
-
+      
             # 拉取镜像
             pull_command="docker pull"
             if [ -n "$platform" ]; then
               pull_command="$pull_command --platform $platform"
             fi
             pull_command="$pull_command $image"
-
+      
             # 创建临时文件存储错误日志
             error_log_file=$(mktemp)
-
+      
             if ! $pull_command 2> "$error_log_file"; then
               error_message=$(cat "$error_log_file" | tr -d '\n' | sed 's/"/\\"/g')
               result="{
                 \"image\": \"$original_image\",
                 \"status\": \"failed\",
-                \"image_name\": \"$image_name\",
+                \"image_name\": \"$display_image_name\",
                 \"tag\": \"$image_tag\",
                 \"error\": \"$error_message\",
                 \"platform\": \"$platform\"
@@ -142,7 +149,7 @@ jobs:
               rm -f "$error_log_file"
               continue
             fi
-
+      
             # 获取镜像大小
             image_size=$(docker inspect --format='{{.Size}}' "$clean_image" | numfmt --to=si)
             
@@ -161,7 +168,7 @@ jobs:
               result="{
                 \"image\": \"$original_image\",
                 \"status\": \"failed\",
-                \"image_name\": \"$image_name\",
+                \"image_name\": \"$display_image_name\",
                 \"tag\": \"$image_tag\",
                 \"error\": \"Failed to tag image\",
                 \"platform\": \"$platform\"
@@ -169,24 +176,25 @@ jobs:
               results_array+=("$result")
               continue
             fi
-
+      
             # 推送镜像
             push_error_log=$(mktemp)
             if docker push "$new_image" 2> "$push_error_log"; then
               result="{
                 \"image\": \"$original_image\",
                 \"status\": \"success\",
-                \"image_name\": \"$image_name\",
+                \"image_name\": \"$display_image_name\",
                 \"tag\": \"$image_tag\",
                 \"size\": \"$image_size\",
-                \"platform\": \"$platform\"
+                \"platform\": \"$platform\",
+                \"new_image_name\": \"$new_image\"  # 添加新镜像名称
               }"
             else
               error_message=$(cat "$push_error_log" | tr -d '\n' | sed 's/"/\\"/g')
               result="{
                 \"image\": \"$original_image\",
                 \"status\": \"failed\",
-                \"image_name\": \"$image_name\",
+                \"image_name\": \"$display_image_name\",
                 \"tag\": \"$image_tag\",
                 \"error\": \"$error_message\",
                 \"platform\": \"$platform\"
@@ -198,7 +206,7 @@ jobs:
             # 清理本地镜像
             docker rmi "$clean_image" "$new_image" || true
           done < images.txt
-
+      
           # 构建完整的JSON结果
           pull_summary_json="{"
           first=true
@@ -219,7 +227,7 @@ jobs:
           echo "=============================================="
           echo "$pull_summary_json"
           echo "=============================================="
-
+      
           # 将结果写入文件
           echo "$pull_summary_json" > pull_results.json
           
