@@ -155,13 +155,13 @@ jobs:
               image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
               image_tag=$(echo "$image_name_tag" | awk -F':' '{print $2}')
               
-              pull_results["$image"]="{\"status\":\"failed\", \"image_name\":\"$image_name\", \"tag\":\"$image_tag\", \"error\":\"$error_message\"}"
+              pull_results["$image"]="{\"status\":\"failed\", \"image_name\":\"$image_name\", \"tag\":\"$image_tag\", \"error\":\"$error_message\", \"platform\":\"$platform\"}"
               
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
                 curl -X POST \
                   -H "Content-Type: application/json" \
                   -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
-                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "拉取镜像失败", "errorlog": "'"$error_message"'"}' \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "拉取镜像失败", "errorlog": "'"$error_message"'", "platform": "'"$platform"'"}' \
                   $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (pull failed)"
               fi
               rm -f "$error_log_file"
@@ -205,7 +205,7 @@ jobs:
                 curl -X POST \
                   -H "Content-Type: application/json" \
                   -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
-                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "重命名镜像失败"}' \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "重命名镜像失败", "platform": "'"$platform"'"}' \
                   $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (tag failed)"
               fi
               continue
@@ -230,7 +230,7 @@ jobs:
                 curl -X POST \
                   -H "Content-Type: application/json" \
                   -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
-                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "推送镜像失败", "errorlog": "'"$error_message"'"}' \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "推送镜像失败", "errorlog": "'"$error_message"'", "platform": "'"$platform"'"}' \
                   $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (push failed)"
               fi
             fi
