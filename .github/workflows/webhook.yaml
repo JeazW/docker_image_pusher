@@ -83,6 +83,7 @@ jobs:
 
       # 6. 拉取、重命名并推送镜像
       - name: Pull-Tag-and-Push-Images
+        id: process_images
         run: |
           # 初始化用于检测重名的数组
           declare -A duplicate_images
@@ -244,10 +245,6 @@ jobs:
             df -hT
           done < images.txt
 
-          # 打印拉取结果汇总
-          echo "=============================================="
-          echo "pull-results-summary:"
-          echo "=============================================="
           # 构建完整的pull_summary JSON
           pull_summary_json="{"
           first=true
@@ -260,8 +257,8 @@ jobs:
           done
           pull_summary_json+="}"
           
-          echo "$pull_summary_json"
-          echo "=============================================="
+          # 设置输出供后续步骤使用
+          echo "pull_summary_json=$pull_summary_json" >> $GITHUB_OUTPUT
 
           # 发送任务完成通知（添加token头）
           if [ -n "$FLASK_WEBHOOK_URL" ]; then
@@ -271,3 +268,12 @@ jobs:
               -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "status": "completed", "message": "所有镜像处理完成", "pull_summary": '"$pull_summary_json"'}' \
               $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (task completed)"
           fi
+
+      # 7. 专门打印pull-results-summary
+      - name: Print-Pull-Results-Summary
+        run: |
+          echo "=============================================="
+          echo "pull-results-summary:"
+          echo "=============================================="
+          echo "${{ steps.process_images.outputs.pull_summary_json }}"
+          echo "=============================================="
