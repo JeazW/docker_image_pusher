@@ -72,17 +72,12 @@ jobs:
           echo "Images to process:"
           cat images.txt
 
-      # 5. 登录阿里云镜像仓库
-      - name: Login-to-Aliyun
-        run: |
-          docker login -u $ALIYUN_REGISTRY_USER -p $ALIYUN_REGISTRY_PASSWORD $ALIYUN_REGISTRY
-
       # 6. 拉取、重命名并推送镜像
       - name: Pull-Tag-and-Push-Images
         id: process_images
         run: |
-          # 初始化结果字典
-          declare -A pull_results
+          # 初始化结果数组
+          declare -a results_array=()
           
           # 处理每个镜像
           while IFS= read -r image || [ -n "$image" ]; do
@@ -106,7 +101,8 @@ jobs:
             image_tag=$(echo "$image_name_tag" | awk -F':' '{print $2}')
 
             # 初始化结果对象
-            pull_results["$original_image"]="{
+            result="{
+              \"image\": \"$original_image\",
               \"status\": \"unknown\",
               \"image_name\": \"$image_name\",
               \"tag\": \"$image_tag\",
@@ -125,13 +121,15 @@ jobs:
 
             if ! $pull_command 2> "$error_log_file"; then
               error_message=$(cat "$error_log_file" | tr -d '\n' | sed 's/"/\\"/g')
-              pull_results["$original_image"]="{
+              result="{
+                \"image\": \"$original_image\",
                 \"status\": \"failed\",
                 \"image_name\": \"$image_name\",
                 \"tag\": \"$image_tag\",
                 \"error\": \"$error_message\",
                 \"platform\": \"$platform\"
               }"
+              results_array+=("$result")
               rm -f "$error_log_file"
               continue
             fi
@@ -144,20 +142,23 @@ jobs:
             
             # 重命名镜像
             if ! docker tag "$clean_image" "$new_image"; then
-              pull_results["$original_image"]="{
+              result="{
+                \"image\": \"$original_image\",
                 \"status\": \"failed\",
                 \"image_name\": \"$image_name\",
                 \"tag\": \"$image_tag\",
                 \"error\": \"Failed to tag image\",
                 \"platform\": \"$platform\"
               }"
+              results_array+=("$result")
               continue
             fi
 
             # 推送镜像
             push_error_log=$(mktemp)
             if docker push "$new_image" 2> "$push_error_log"; then
-              pull_results["$original_image"]="{
+              result="{
+                \"image\": \"$original_image\",
                 \"status\": \"success\",
                 \"image_name\": \"$image_name\",
                 \"tag\": \"$image_tag\",
@@ -166,7 +167,8 @@ jobs:
               }"
             else
               error_message=$(cat "$push_error_log" | tr -d '\n' | sed 's/"/\\"/g')
-              pull_results["$original_image"]="{
+              result="{
+                \"image\": \"$original_image\",
                 \"status\": \"failed\",
                 \"image_name\": \"$image_name\",
                 \"tag\": \"$image_tag\",
@@ -174,20 +176,23 @@ jobs:
                 \"platform\": \"$platform\"
               }"
             fi
+            results_array+=("$result")
             rm -f "$push_error_log"
             
             # 清理本地镜像
             docker rmi "$clean_image" "$new_image" || true
           done < images.txt
 
-          # 构建完整的pull_summary JSON
+          # 构建完整的JSON结果
           pull_summary_json="{"
           first=true
-          for image in "${!pull_results[@]}"; do
+          for result in "${results_array[@]}"; do
             if [ "$first" = false ]; then
               pull_summary_json+=","
             fi
-            pull_summary_json+="\"$image\":${pull_results[$image]}"
+            # 提取镜像名称作为key
+            image_key=$(echo "$result" | jq -r '.image' | sed 's/[\/:]/_/g')
+            pull_summary_json+="\"$image_key\":$result"
             first=false
           done
           pull_summary_json+="}"
@@ -199,19 +204,18 @@ jobs:
           echo "$pull_summary_json"
           echo "=============================================="
 
-          # 将结果写入文件以便后续步骤使用
+          # 将结果写入文件
           echo "$pull_summary_json" > pull_results.json
           
-          # 修复输出格式，确保 JSON 是有效的
-          # 使用 jq 工具格式化 JSON，并确保输出符合 GitHub Actions 的要求
+          # 安装jq工具处理JSON
           if ! command -v jq &> /dev/null; then
             sudo apt-get update && sudo apt-get install -y jq
           fi
           
-          # 使用 jq 格式化 JSON，并确保输出是单行的
+          # 格式化JSON输出
           formatted_json=$(echo "$pull_summary_json" | jq -c .)
           
-          # 输出到 GITHUB_OUTPUT，确保格式正确
+          # 输出到GITHUB_OUTPUT
           echo "pull_summary_json<<EOF" >> $GITHUB_OUTPUT
           echo "$formatted_json" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
