@@ -25,24 +25,28 @@ env:
   FLASK_WEBHOOK_TOKEN: "${{ secrets.FLASK_WEBHOOK_TOKEN }}"
   TASK_ID: "${{ github.event.inputs.task_id }}"
   EXECUTION_ID: "${{ github.event.inputs.execution_id }}"
-  TZ: "Asia/Shanghai"  # 新增时区设置
+  TZ: "Asia/Shanghai"  # 设置时区为CST
 
 jobs:
   build:
     name: Pull-and-Push-Images
     runs-on: ubuntu-latest
     steps:
-      # 0. 设置时区
-      - name: Set-timezone
+      # 0. 设置时区和时间同步
+      - name: Configure-timezone-and-ntp
         run: |
-          sudo timedatectl set-timezone $TZ
+          sudo ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+          sudo timedatectl set-timezone Asia/Shanghai
+          sudo apt-get update && sudo apt-get install -y ntpdate
+          sudo ntpdate ntp.aliyun.com
           echo "Current timezone: $(timedatectl | grep "Time zone")"
-          echo "Current time: $(date)"
+          echo "Current local time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "Current UTC time: $(date -u '+%Y-%m-%d %H:%M:%S %Z')"
 
       # 1. 磁盘空间检查
       - name: Check-disk-space-before-cleanup
         run: |
-          echo "Before freeing up disk space"
+          echo "Before freeing up disk space - $(date '+%Y-%m-%d %H:%M:%S %Z')"
           echo "=============================================================================="
           df -hT
           echo "=============================================================================="
@@ -62,7 +66,7 @@ jobs:
 
       - name: Check-disk-space-after-cleanup
         run: |
-          echo "Free up disk space complete"
+          echo "Free up disk space complete - $(date '+%Y-%m-%d %H:%M:%S %Z')"
           echo "=============================================================================="
           df -hT
           echo "=============================================================================="
@@ -74,6 +78,7 @@ jobs:
       # 4. 处理传入的镜像列表
       - name: Process-Images
         run: |
+          echo "Processing started at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
           echo "Received images: ${{ github.event.inputs.images }}"
           echo "Task ID: ${{ github.event.inputs.task_id }}"
           echo "Execution ID: ${{ github.event.inputs.execution_id }}"
@@ -87,6 +92,7 @@ jobs:
       # 5. 登录阿里云镜像仓库
       - name: Login-to-Aliyun
         run: |
+          echo "Login started at: $(date '+%Y-%m-%d %H:%M:%S %Z')"
           docker login -u $ALIYUN_REGISTRY_USER -p $ALIYUN_REGISTRY_PASSWORD $ALIYUN_REGISTRY
 
       # 6. 拉取、重命名并推送镜像
@@ -103,7 +109,7 @@ jobs:
             # 忽略空行
             [[ -z "$image" ]] && continue
 
-            echo "Analyzing image: $image"
+            echo "Analyzing image: $image at $(date '+%Y-%m-%d %H:%M:%S %Z')"
             
             # 处理镜像名称（移除平台参数）
             clean_image=$(echo "$image" | sed 's/^--platform=[^ ]* //')
@@ -116,7 +122,7 @@ jobs:
             # 检测重名
             if [[ -n "${temp_map[$image_name]}" ]]; then
               if [[ "${temp_map[$image_name]}" != $name_space ]]; then
-                echo "Duplicate image name detected: $image_name"
+                echo "Duplicate image name detected: $image_name at $(date '+%Y-%m-%d %H:%M:%S %Z')"
                 duplicate_images[$image_name]="true"
               fi
             else
@@ -129,11 +135,11 @@ jobs:
             # 忽略空行
             [[ -z "$image" ]] && continue
 
-            echo "Processing image: $image"
+            echo "Processing image: $image at $(date '+%Y-%m-%d %H:%M:%S %Z')"
             
             # 发送开始处理消息（添加token头）
             if [ -n "$FLASK_WEBHOOK_URL" ]; then
-              current_time=$(date "+%Y-%m-%d %H:%M:%S %Z")
+              current_time=$(date '+%Y-%m-%d %H:%M:%S %Z')
               curl -X POST \
                 -H "Content-Type: application/json" \
                 -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
@@ -165,10 +171,10 @@ jobs:
               image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
               image_tag=$(echo "$image_name_tag" | awk -F':' '{print $2}')
               
-              pull_results["$image"]="{\"status\":\"failed\", \"image_name\":\"$image_name\", \"tag\":\"$image_tag\", \"error\":\"$error_message\", \"platform\":\"$platform\"}"
+              pull_results["$image"]="{\"status\":\"failed\", \"image_name\":\"$image_name\", \"tag\":\"$image_tag\", \"error\":\"$error_message\", \"platform\":\"$platform\", \"timestamp\":\"$(date '+%Y-%m-%d %H:%M:%S %Z')\"}"
               
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
-                current_time=$(date "+%Y-%m-%d %H:%M:%S %Z")
+                current_time=$(date '+%Y-%m-%d %H:%M:%S %Z')
                 curl -X POST \
                   -H "Content-Type: application/json" \
                   -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
@@ -185,7 +191,7 @@ jobs:
               image_tag=$(echo "$image_name_tag" | awk -F':' '{print $2}')
               image_size=$(docker inspect --format='{{.Size}}' $clean_image | numfmt --to=si)
               
-              pull_results["$image"]="{\"status\":\"success\", \"image_name\":\"$image_name\", \"tag\":\"$image_tag\", \"size\":\"$image_size\", \"platform\":\"$platform\"}"
+              pull_results["$image"]="{\"status\":\"success\", \"image_name\":\"$image_name\", \"tag\":\"$image_tag\", \"size\":\"$image_size\", \"platform\":\"$platform\", \"timestamp\":\"$(date '+%Y-%m-%d %H:%M:%S %Z')\"}"
             fi
             rm -f "$error_log_file"
 
@@ -213,7 +219,7 @@ jobs:
             # 重命名镜像
             if ! docker tag "$clean_image" "$new_image"; then
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
-                current_time=$(date "+%Y-%m-%d %H:%M:%S %Z")
+                current_time=$(date '+%Y-%m-%d %H:%M:%S %Z')
                 curl -X POST \
                   -H "Content-Type: application/json" \
                   -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
@@ -230,7 +236,7 @@ jobs:
               image_size=$(docker inspect --format='{{.Size}}' $new_image | numfmt --to=si)
               
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
-                current_time=$(date "+%Y-%m-%d %H:%M:%S %Z")
+                current_time=$(date '+%Y-%m-%d %H:%M:%S %Z')
                 curl -X POST \
                   -H "Content-Type: application/json" \
                   -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
@@ -240,7 +246,7 @@ jobs:
             else
               error_message=$(cat "$push_error_log" | tr -d '\n' | sed 's/"/\\"/g')
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
-                current_time=$(date "+%Y-%m-%d %H:%M:%S %Z")
+                current_time=$(date '+%Y-%m-%d %H:%M:%S %Z')
                 curl -X POST \
                   -H "Content-Type: application/json" \
                   -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
@@ -251,10 +257,10 @@ jobs:
             rm -f "$push_error_log"
             
             # 清理本地镜像
-            echo "Cleaning up disk space..."
+            echo "Cleaning up disk space at $(date '+%Y-%m-%d %H:%M:%S %Z')..."
             df -hT
             docker rmi "$clean_image" "$new_image" || true
-            echo "Cleanup completed:"
+            echo "Cleanup completed at $(date '+%Y-%m-%d %H:%M:%S %Z'):"
             df -hT
           done < images.txt
 
@@ -275,7 +281,7 @@ jobs:
 
           # 发送任务完成通知（添加token头）
           if [ -n "$FLASK_WEBHOOK_URL" ]; then
-            current_time=$(date "+%Y-%m-%d %H:%M:%S %Z")
+            current_time=$(date '+%Y-%m-%d %H:%M:%S %Z')
             curl -X POST \
               -H "Content-Type: application/json" \
               -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
@@ -287,8 +293,14 @@ jobs:
       - name: Print-Pull-Results-Summary
         run: |
           echo "=============================================="
-          echo "pull-results-summary:"
+          echo "pull-results-summary at $(date '+%Y-%m-%d %H:%M:%S %Z'):"
           echo "=============================================="
           echo "${{ steps.process_images.outputs.pull_summary_json }}"
           echo "=============================================="
-          echo "Current time: $(date)"
+          echo "Current local time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "Current UTC time: $(date -u '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "GitHub API time (UTC): $(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}" | \
+            jq -r '.updated_at')"
