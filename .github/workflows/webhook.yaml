@@ -25,12 +25,20 @@ env:
   FLASK_WEBHOOK_TOKEN: "${{ secrets.FLASK_WEBHOOK_TOKEN }}"
   TASK_ID: "${{ github.event.inputs.task_id }}"
   EXECUTION_ID: "${{ github.event.inputs.execution_id }}"
+  TZ: "Asia/Shanghai"  # 新增时区设置
 
 jobs:
   build:
     name: Pull-and-Push-Images
     runs-on: ubuntu-latest
     steps:
+      # 0. 设置时区
+      - name: Set-timezone
+        run: |
+          sudo timedatectl set-timezone $TZ
+          echo "Current timezone: $(timedatectl | grep "Time zone")"
+          echo "Current time: $(date)"
+
       # 1. 磁盘空间检查
       - name: Check-disk-space-before-cleanup
         run: |
@@ -125,10 +133,11 @@ jobs:
             
             # 发送开始处理消息（添加token头）
             if [ -n "$FLASK_WEBHOOK_URL" ]; then
+              current_time=$(date "+%Y-%m-%d %H:%M:%S %Z")
               curl -X POST \
                 -H "Content-Type: application/json" \
                 -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
-                -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "running", "message": "开始处理镜像"}' \
+                -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "running", "message": "开始处理镜像", "timestamp": "'"$current_time"'"}' \
                 $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (start processing)"
             fi
             
@@ -159,10 +168,11 @@ jobs:
               pull_results["$image"]="{\"status\":\"failed\", \"image_name\":\"$image_name\", \"tag\":\"$image_tag\", \"error\":\"$error_message\", \"platform\":\"$platform\"}"
               
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
+                current_time=$(date "+%Y-%m-%d %H:%M:%S %Z")
                 curl -X POST \
                   -H "Content-Type: application/json" \
                   -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
-                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "拉取镜像失败", "errorlog": "'"$error_message"'", "platform": "'"$platform"'"}' \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "拉取镜像失败", "errorlog": "'"$error_message"'", "platform": "'"$platform"'", "timestamp": "'"$current_time"'"}' \
                   $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (pull failed)"
               fi
               rm -f "$error_log_file"
@@ -203,10 +213,11 @@ jobs:
             # 重命名镜像
             if ! docker tag "$clean_image" "$new_image"; then
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
+                current_time=$(date "+%Y-%m-%d %H:%M:%S %Z")
                 curl -X POST \
                   -H "Content-Type: application/json" \
                   -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
-                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "重命名镜像失败", "platform": "'"$platform"'"}' \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "重命名镜像失败", "platform": "'"$platform"'", "timestamp": "'"$current_time"'"}' \
                   $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (tag failed)"
               fi
               continue
@@ -219,19 +230,21 @@ jobs:
               image_size=$(docker inspect --format='{{.Size}}' $new_image | numfmt --to=si)
               
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
+                current_time=$(date "+%Y-%m-%d %H:%M:%S %Z")
                 curl -X POST \
                   -H "Content-Type: application/json" \
                   -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
-                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "success", "message": "镜像同步成功", "size": "'"$image_size"'", "platform": "'"$platform"'"}' \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "success", "message": "镜像同步成功", "size": "'"$image_size"'", "platform": "'"$platform"'", "timestamp": "'"$current_time"'"}' \
                   $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (push success)"
               fi
             else
               error_message=$(cat "$push_error_log" | tr -d '\n' | sed 's/"/\\"/g')
               if [ -n "$FLASK_WEBHOOK_URL" ]; then
+                current_time=$(date "+%Y-%m-%d %H:%M:%S %Z")
                 curl -X POST \
                   -H "Content-Type: application/json" \
                   -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
-                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "推送镜像失败", "errorlog": "'"$error_message"'", "platform": "'"$platform"'"}' \
+                  -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "image_name": "'"$image"'", "status": "failed", "message": "推送镜像失败", "errorlog": "'"$error_message"'", "platform": "'"$platform"'", "timestamp": "'"$current_time"'"}' \
                   $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (push failed)"
               fi
             fi
@@ -262,10 +275,11 @@ jobs:
 
           # 发送任务完成通知（添加token头）
           if [ -n "$FLASK_WEBHOOK_URL" ]; then
+            current_time=$(date "+%Y-%m-%d %H:%M:%S %Z")
             curl -X POST \
               -H "Content-Type: application/json" \
               -H "X-Webhook-Token: $FLASK_WEBHOOK_TOKEN" \
-              -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "status": "completed", "message": "所有镜像处理完成", "pull_summary": '"$pull_summary_json"'}' \
+              -d '{"task_id": "'"$TASK_ID"'", "execution_id": "'"$EXECUTION_ID"'", "status": "completed", "message": "所有镜像处理完成", "pull_summary": '"$pull_summary_json"', "timestamp": "'"$current_time"'"}' \
               $FLASK_WEBHOOK_URL || echo "Failed to send webhook notification (task completed)"
           fi
 
@@ -277,3 +291,4 @@ jobs:
           echo "=============================================="
           echo "${{ steps.process_images.outputs.pull_summary_json }}"
           echo "=============================================="
+          echo "Current time: $(date)"
